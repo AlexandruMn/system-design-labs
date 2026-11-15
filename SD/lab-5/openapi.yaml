@@ -1,0 +1,1463 @@
+openapi: 3.1.0
+info:
+  title: Personal Investment Dashboard API
+  summary: Market data and private Watchlist (Lab 5 scope).
+  description: 'All paths are under `/api/v1`. Authenticate with `Authorization: Bearer
+    <JWT>` issued by the external Identity Provider. Market data endpoints are readable
+    by any authenticated user; Watchlist endpoints only ever touch the caller''s own
+    Watchlist.
+
+
+    **Stub:** handlers return in-memory sample data; the contract is real.'
+  version: 1.0.0
+paths:
+  /api/v1/stocks:
+    get:
+      tags:
+      - Market
+      summary: Market overview, trending, filter and search
+      description: 'One endpoint for four actions:
+
+
+        * **Market overview** - `sort=symbol` (default), A-Z.
+
+        * **Trending** - `sort=trending`: active Stocks with a non-unavailable price,
+        ranked by `abs(changePercent)` descending, ties by `symbol` A-Z.
+
+        * **Filter** - `exchange`, `type`, `active`.
+
+        * **Search** - `q`, case-insensitive prefix match on symbol or substring of
+        company name (2-50 chars).
+
+
+        Cursor pagination. Public result: contains nothing user-specific, so it is
+        cacheable (Lab 4).'
+      operationId: listStocks
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 2
+            maxLength: 50
+          - type: 'null'
+          description: Search by symbol prefix or company name.
+          examples:
+          - app
+          title: Q
+        description: Search by symbol prefix or company name.
+      - name: exchange
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Exchange'
+          - type: 'null'
+          description: Filter by exchange.
+          title: Exchange
+        description: Filter by exchange.
+      - name: type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/InstrumentType'
+          - type: 'null'
+          description: Filter by instrument type.
+          title: Type
+        description: Filter by instrument type.
+      - name: active
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          description: 'Default `true`: delisted Stocks are hidden unless `active=false`.'
+          title: Active
+        description: 'Default `true`: delisted Stocks are hidden unless `active=false`.'
+      - name: sort
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/StockSort'
+          description: Ordering. See operation description.
+          default: symbol
+        description: Ordering. See operation description.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Page size, 1-100.
+          default: 20
+          title: Limit
+        description: Page size, 1-100.
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`page.nextCursor` of the previous page. Valid only with the
+            same filters and sort.'
+          title: Cursor
+        description: '`page.nextCursor` of the previous page. Valid only with the
+          same filters and sort.'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockPage'
+              examples:
+                trending_page:
+                  summary: Trending, first page
+                  value:
+                    items:
+                    - symbol: TSM
+                      name: Taiwan Semiconductor Manufacturing
+                      exchange: NYSE
+                      type: ADR
+                      active: true
+                      price:
+                        symbol: TSM
+                        price: 301.55
+                        previousClose: 290.0
+                        change: 11.55
+                        changePercent: 3.98
+                        currency: USD
+                        state: stale
+                        providerTimestamp: '2026-10-08T14:10:00-04:00'
+                        ageSeconds: 1200
+                    - symbol: AAPL
+                      name: Apple Inc.
+                      exchange: NASDAQ
+                      type: COMMON_STOCK
+                      active: true
+                      price:
+                        symbol: AAPL
+                        price: 231.42
+                        previousClose: 229.1
+                        change: 2.32
+                        changePercent: 1.01
+                        currency: USD
+                        state: current
+                        providerTimestamp: '2026-10-08T14:29:00-04:00'
+                        ageSeconds: 60
+                    page:
+                      limit: 2
+                      nextCursor: eyJ2IjoxLjAxLCJzIjoiQUFQTCJ9
+                      hasMore: true
+                filtered_page:
+                  summary: exchange=NASDAQ&type=COMMON_STOCK&q=app
+                  value:
+                    items:
+                    - symbol: AAPL
+                      name: Apple Inc.
+                      exchange: NASDAQ
+                      type: COMMON_STOCK
+                      active: true
+                      price:
+                        symbol: AAPL
+                        price: 231.42
+                        previousClose: 229.1
+                        change: 2.32
+                        changePercent: 1.01
+                        currency: USD
+                        state: current
+                        providerTimestamp: '2026-10-08T14:29:00-04:00'
+                        ageSeconds: 60
+                    page:
+                      limit: 20
+                      hasMore: false
+                empty:
+                  summary: No match (still 200)
+                  value:
+                    items: []
+                    page:
+                      limit: 20
+                      hasMore: false
+        '400':
+          description: Invalid input.
+          content:
+            application/json:
+              example:
+                error:
+                  code: invalid_request
+                  message: One or more parameters are invalid.
+                  details:
+                  - field: limit
+                    issue: must be between 1 and 100
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/stocks/{symbol}:
+    get:
+      tags:
+      - Market
+      summary: Stock detail (reference data + latest price)
+      operationId: getStock
+      parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 10
+          pattern: ^[A-Za-z][A-Za-z0-9.\-]{0,9}$
+          description: Ticker symbol, case-insensitive.
+          examples:
+          - AAPL
+          title: Symbol
+        description: Ticker symbol, case-insensitive.
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockDetail'
+              example:
+                symbol: AAPL
+                name: Apple Inc.
+                exchange: NASDAQ
+                type: COMMON_STOCK
+                active: true
+                country: US
+                currency: USD
+                price:
+                  symbol: AAPL
+                  price: 231.42
+                  previousClose: 229.1
+                  change: 2.32
+                  changePercent: 1.01
+                  currency: USD
+                  state: current
+                  providerTimestamp: '2026-10-08T14:29:00-04:00'
+                  ageSeconds: 60
+        '400':
+          description: Invalid input.
+          content:
+            application/json:
+              example:
+                error:
+                  code: invalid_request
+                  message: One or more parameters are invalid.
+                  details:
+                  - field: limit
+                    issue: must be between 1 and 100
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown symbol.
+          content:
+            application/json:
+              example:
+                error:
+                  code: stock_not_found
+                  message: No Stock with symbol 'ZZZZ'.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/stocks/{symbol}/price:
+    get:
+      tags:
+      - Market
+      summary: Latest accepted price (cheap polling endpoint)
+      description: 'Reads already-synchronized data; never calls the Market Data Provider.
+        `state` follows the provider-timestamp policy: current <=15 min, stale <=30
+        min, else unavailable (`price: null`).'
+      operationId: getStockPrice
+      parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 10
+          pattern: ^[A-Za-z][A-Za-z0-9.\-]{0,9}$
+          description: Ticker symbol, case-insensitive.
+          examples:
+          - AAPL
+          title: Symbol
+        description: Ticker symbol, case-insensitive.
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceQuote'
+              examples:
+                current:
+                  value:
+                    symbol: AAPL
+                    price: 231.42
+                    previousClose: 229.1
+                    change: 2.32
+                    changePercent: 1.01
+                    currency: USD
+                    state: current
+                    providerTimestamp: '2026-10-08T14:29:00-04:00'
+                    ageSeconds: 60
+                stale:
+                  value:
+                    symbol: TSM
+                    price: 301.55
+                    previousClose: 290.0
+                    change: 11.55
+                    changePercent: 3.98
+                    currency: USD
+                    state: stale
+                    providerTimestamp: '2026-10-08T14:10:00-04:00'
+                    ageSeconds: 1200
+                unavailable:
+                  value:
+                    symbol: OLDCO
+                    currency: USD
+                    state: unavailable
+        '400':
+          description: Invalid input.
+          content:
+            application/json:
+              example:
+                error:
+                  code: invalid_request
+                  message: One or more parameters are invalid.
+                  details:
+                  - field: limit
+                    issue: must be between 1 and 100
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown symbol.
+          content:
+            application/json:
+              example:
+                error:
+                  code: stock_not_found
+                  message: No Stock with symbol 'ZZZZ'.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/stocks/{symbol}/history:
+    get:
+      tags:
+      - Market
+      summary: Daily price history
+      description: Daily bars derived from stored 1-minute points. Range is at most
+        366 days (1-year retention), so the result is bounded (max 366 items) and
+        has no cursor. Works for delisted Stocks.
+      operationId: getStockHistory
+      parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 10
+          pattern: ^[A-Za-z][A-Za-z0-9.\-]{0,9}$
+          description: Ticker symbol, case-insensitive.
+          examples:
+          - AAPL
+          title: Symbol
+        description: Ticker symbol, case-insensitive.
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: 'Inclusive start date. Default: `to` minus 29 days.'
+          title: From
+        description: 'Inclusive start date. Default: `to` minus 29 days.'
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: 'Inclusive end date. Default: today (exchange time).'
+          title: To
+        description: 'Inclusive end date. Default: today (exchange time).'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHistory'
+              example:
+                symbol: AAPL
+                interval: 1d
+                from: '2026-10-06'
+                to: '2026-10-07'
+                items:
+                - date: '2026-10-06'
+                  open: 227.9
+                  high: 230.1
+                  low: 226.8
+                  close: 229.1
+                  pointCount: 390
+                - date: '2026-10-07'
+                  open: 229.3
+                  high: 232.0
+                  low: 228.7
+                  close: 231.0
+                  pointCount: 390
+        '400':
+          description: Invalid range.
+          content:
+            application/json:
+              example:
+                error:
+                  code: invalid_request
+                  message: One or more parameters are invalid.
+                  details:
+                  - field: from
+                    issue: range must not exceed 366 days
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown symbol.
+          content:
+            application/json:
+              example:
+                error:
+                  code: stock_not_found
+                  message: No Stock with symbol 'ZZZZ'.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/watchlist:
+    get:
+      tags:
+      - Watchlist
+      summary: Read my Watchlist
+      description: 'Private. Owner = token `sub`. Always read from the User Data Store
+        (never a shared cache), so it reflects every previously confirmed change (read-your-writes).
+        Delisted entries stay, with `active: false`.'
+      operationId: getWatchlist
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Watchlist'
+              examples:
+                with_items:
+                  value:
+                    items:
+                    - symbol: AAPL
+                      name: Apple Inc.
+                      active: true
+                      addedAt: '2026-10-08T09:12:44-04:00'
+                      price:
+                        symbol: AAPL
+                        price: 231.42
+                        previousClose: 229.1
+                        change: 2.32
+                        changePercent: 1.01
+                        currency: USD
+                        state: current
+                        providerTimestamp: '2026-10-08T14:29:00-04:00'
+                        ageSeconds: 60
+                    count: 1
+                    limit: 100
+                empty:
+                  value:
+                    items: []
+                    count: 0
+                    limit: 100
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/watchlist/items:
+    post:
+      tags:
+      - Watchlist
+      summary: Add a Stock to my Watchlist
+      description: 'Idempotent: adding a Stock that is already present returns `200`
+        with the existing item. Success is returned only after the write is confirmed
+        in the User Data Store.'
+      operationId: addWatchlistItem
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddWatchlistItem'
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistItem'
+              example:
+                symbol: AAPL
+                name: Apple Inc.
+                active: true
+                addedAt: '2026-10-08T09:12:44-04:00'
+                price:
+                  symbol: AAPL
+                  price: 231.42
+                  previousClose: 229.1
+                  change: 2.32
+                  changePercent: 1.01
+                  currency: USD
+                  state: current
+                  providerTimestamp: '2026-10-08T14:29:00-04:00'
+                  ageSeconds: 60
+        '200':
+          description: Already in the Watchlist; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistItem'
+        '400':
+          description: Invalid body.
+          content:
+            application/json:
+              example:
+                error:
+                  code: invalid_request
+                  message: One or more parameters are invalid.
+                  details:
+                  - field: body.symbol
+                    issue: String should match pattern '^[A-Za-z][A-Za-z0-9.\-]{0,9}$'
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown symbol.
+          content:
+            application/json:
+              example:
+                error:
+                  code: stock_not_found
+                  message: No Stock with symbol 'ZZZZ'.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Stock is inactive/delisted, or the Watchlist already has 100
+            items.
+          content:
+            application/json:
+              example:
+                error:
+                  code: stock_inactive
+                  message: '''OLDCO'' is delisted and cannot be added.'
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/watchlist/items/{symbol}:
+    delete:
+      tags:
+      - Watchlist
+      summary: Remove a Stock from my Watchlist
+      description: Works for delisted entries too. Success only after the delete is
+        confirmed.
+      operationId: removeWatchlistItem
+      parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 10
+          pattern: ^[A-Za-z][A-Za-z0-9.\-]{0,9}$
+          description: Ticker symbol, case-insensitive.
+          examples:
+          - AAPL
+          title: Symbol
+        description: Ticker symbol, case-insensitive.
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`Bearer <JWT from the external Identity Provider>`'
+          title: Authorization
+        description: '`Bearer <JWT from the external Identity Provider>`'
+      responses:
+        '204':
+          description: Removed.
+        '400':
+          description: Invalid input.
+          content:
+            application/json:
+              example:
+                error:
+                  code: invalid_request
+                  message: One or more parameters are invalid.
+                  details:
+                  - field: limit
+                    issue: must be between 1 and 100
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, malformed, expired or invalid bearer token.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Authentication required.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Symbol is not in the caller's Watchlist.
+          content:
+            application/json:
+              example:
+                error:
+                  code: watchlist_item_not_found
+                  message: '''MSFT'' is not in your Watchlist.'
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded. Wait `Retry-After` seconds, then retry.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema:
+                type: integer
+                example: 2
+          content:
+            application/json:
+              example:
+                error:
+                  code: rate_limited
+                  message: Too many requests.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Required data store unavailable. Nothing was changed.
+          content:
+            application/json:
+              example:
+                error:
+                  code: unavailable
+                  message: Service temporarily unavailable.
+                  details: []
+                  requestId: req_8f3a1c
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AddWatchlistItem:
+      properties:
+        symbol:
+          type: string
+          maxLength: 10
+          minLength: 1
+          pattern: ^[A-Za-z][A-Za-z0-9.\-]{0,9}$
+          title: Symbol
+          examples:
+          - AAPL
+      type: object
+      required:
+      - symbol
+      title: AddWatchlistItem
+    DailyBar:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        open:
+          type: number
+          title: Open
+        high:
+          type: number
+          title: High
+        low:
+          type: number
+          title: Low
+        close:
+          type: number
+          title: Close
+        pointCount:
+          type: integer
+          title: Pointcount
+          description: Minute points used; at most 390 per regular day.
+          examples:
+          - 390
+      type: object
+      required:
+      - date
+      - open
+      - high
+      - low
+      - close
+      - pointCount
+      title: DailyBar
+      description: One trading day, derived from stored 1-minute price points.
+    ErrorBody:
+      properties:
+        code:
+          type: string
+          title: Code
+          examples:
+          - invalid_request
+        message:
+          type: string
+          title: Message
+          examples:
+          - One or more parameters are invalid.
+        details:
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+          type: array
+          title: Details
+          default: []
+        requestId:
+          type: string
+          title: Requestid
+          examples:
+          - req_8f3a1c
+      type: object
+      required:
+      - code
+      - message
+      - requestId
+      title: ErrorBody
+    ErrorDetail:
+      properties:
+        field:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Field
+          examples:
+          - limit
+        issue:
+          type: string
+          title: Issue
+          examples:
+          - must be between 1 and 100
+      type: object
+      required:
+      - issue
+      title: ErrorDetail
+    ErrorResponse:
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+      type: object
+      required:
+      - error
+      title: ErrorResponse
+    Exchange:
+      type: string
+      enum:
+      - NASDAQ
+      - NYSE
+      title: Exchange
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    InstrumentType:
+      type: string
+      enum:
+      - COMMON_STOCK
+      - ADR
+      title: InstrumentType
+    PageInfo:
+      properties:
+        limit:
+          type: integer
+          title: Limit
+          examples:
+          - 20
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nextcursor
+          description: Opaque. `null` on the last page.
+          examples:
+          - eyJzIjoiQUFQTCJ9
+        hasMore:
+          type: boolean
+          title: Hasmore
+      type: object
+      required:
+      - limit
+      - hasMore
+      title: PageInfo
+    PriceHistory:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+        interval:
+          type: string
+          const: 1d
+          title: Interval
+          default: 1d
+        from:
+          type: string
+          format: date
+          title: From
+        to:
+          type: string
+          format: date
+          title: To
+        items:
+          items:
+            $ref: '#/components/schemas/DailyBar'
+          type: array
+          title: Items
+          description: Ascending by date. Days without data are omitted, never filled
+            with 0.
+      type: object
+      required:
+      - symbol
+      - from
+      - to
+      - items
+      title: PriceHistory
+    PriceQuote:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          examples:
+          - AAPL
+        price:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Price
+          description: Latest accepted price. `null` when state is `unavailable`;
+            never 0 as a substitute.
+          examples:
+          - 231.42
+        previousClose:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Previousclose
+          examples:
+          - 229.1
+        change:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Change
+          description: 'Derived: price - previousClose.'
+          examples:
+          - 2.32
+        changePercent:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Changepercent
+          description: 'Derived: change / previousClose * 100.'
+          examples:
+          - 1.01
+        currency:
+          type: string
+          const: USD
+          title: Currency
+          default: USD
+        state:
+          $ref: '#/components/schemas/PriceState'
+        providerTimestamp:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Providertimestamp
+          description: Source time from the Market Data Provider (ISO 8601 with offset).
+          examples:
+          - '2026-10-08T14:29:00-04:00'
+        ageSeconds:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Ageseconds
+          description: 'Derived at read time: now - providerTimestamp.'
+          examples:
+          - 48
+      type: object
+      required:
+      - symbol
+      - state
+      title: PriceQuote
+      description: Latest accepted price of one Stock, classified by provider timestamp.
+    PriceState:
+      type: string
+      enum:
+      - current
+      - stale
+      - unavailable
+      title: PriceState
+    StockDetail:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          examples:
+          - AAPL
+        name:
+          type: string
+          title: Name
+          examples:
+          - Apple Inc.
+        exchange:
+          $ref: '#/components/schemas/Exchange'
+        type:
+          $ref: '#/components/schemas/InstrumentType'
+        active:
+          type: boolean
+          title: Active
+          description: '`false` for delisted/inactive instruments (history only).'
+        price:
+          $ref: '#/components/schemas/PriceQuote'
+        country:
+          type: string
+          title: Country
+          examples:
+          - US
+        currency:
+          type: string
+          const: USD
+          title: Currency
+          default: USD
+      type: object
+      required:
+      - symbol
+      - name
+      - exchange
+      - type
+      - active
+      - price
+      - country
+      title: StockDetail
+    StockPage:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/StockSummary'
+          type: array
+          title: Items
+        page:
+          $ref: '#/components/schemas/PageInfo'
+      type: object
+      required:
+      - items
+      - page
+      title: StockPage
+    StockSort:
+      type: string
+      enum:
+      - symbol
+      - trending
+      title: StockSort
+    StockSummary:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          examples:
+          - AAPL
+        name:
+          type: string
+          title: Name
+          examples:
+          - Apple Inc.
+        exchange:
+          $ref: '#/components/schemas/Exchange'
+        type:
+          $ref: '#/components/schemas/InstrumentType'
+        active:
+          type: boolean
+          title: Active
+          description: '`false` for delisted/inactive instruments (history only).'
+        price:
+          $ref: '#/components/schemas/PriceQuote'
+      type: object
+      required:
+      - symbol
+      - name
+      - exchange
+      - type
+      - active
+      - price
+      title: StockSummary
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    Watchlist:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/WatchlistItem'
+          type: array
+          title: Items
+          description: Newest first. At most 100, so no pagination.
+        count:
+          type: integer
+          title: Count
+          description: 'Derived: len(items).'
+        limit:
+          type: integer
+          title: Limit
+          description: Maximum items per Watchlist.
+          default: 100
+      type: object
+      required:
+      - items
+      - count
+      title: Watchlist
+    WatchlistItem:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+        name:
+          type: string
+          title: Name
+        active:
+          type: boolean
+          title: Active
+        addedAt:
+          type: string
+          format: date-time
+          title: Addedat
+          examples:
+          - '2026-10-08T09:12:44-04:00'
+        price:
+          $ref: '#/components/schemas/PriceQuote'
+      type: object
+      required:
+      - symbol
+      - name
+      - active
+      - addedAt
+      - price
+      title: WatchlistItem
+tags:
+- name: Market
+  description: Public market data (cacheable).
+- name: Watchlist
+  description: Private to the authenticated user (never cached).
